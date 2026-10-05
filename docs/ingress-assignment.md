@@ -1,6 +1,6 @@
 # Ingress assignment resolver
 
-`pkg/ingressassignment.Resolve` reads a Namespace's ingress assignment and
+`framework/utils/ingressassignment.Resolve` reads a Namespace's ingress assignment and
 returns the selected configured `Ingress` unchanged, including its ingress name,
 Gateway name and namespace, optional hostname, and `IsDefault`. Pass the manager's
 cached `client.Client`, the Namespace name, and the configured ingresses.
@@ -43,13 +43,23 @@ otherwise it returns `ErrUnknownIngress`. Explicitly naming the default ingress
 selects the same ingress. An exact match with another ingress name selects that
 configured ingress. Unknown, removed, or empty annotated names return an empty
 `Ingress` and an error identifying the Namespace and annotated name, without
-default fallback. Use `errors.Is(err, ingressassignment.ErrUnknownIngress)` to
-distinguish these cases from configuration or Namespace read errors. Invalid
-ingress lists (multiple defaults, empty ingress or Gateway names or Gateway
-namespaces, or duplicate ingress or Gateway names) return errors before the
-Namespace read. Namespace
-lookup errors, including a missing Namespace, are returned as errors. `Resolve`
-only reads the current Namespace.
+default fallback. `Resolve` only reads the current Namespace.
+
+## Errors
+
+Every error returns an empty `Ingress`. Use the wrapped errors to distinguish
+failure types:
+
+- `errors.Is(err, ingressassignment.ErrUnknownIngress)` identifies unknown,
+  removed, or empty annotated names, or an absent annotation without a default.
+- `errors.Is(err, ingressassignment.ErrInvalidIngresses)` identifies invalid
+  ingress lists: multiple defaults, empty ingress or Gateway names or Gateway
+  namespaces, or duplicate ingress or Gateway names. Validation runs before
+  the Namespace read.
+- Namespace read failures wrap the underlying client error with the Namespace
+  name. Kubernetes error checks still work, including
+  `apierrors.IsNotFound(err)` for a missing Namespace
+  (`apierrors` is `k8s.io/apimachinery/pkg/api/errors`).
 
 ## Permissions and watches
 

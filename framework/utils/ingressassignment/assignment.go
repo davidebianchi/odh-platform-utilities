@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/annotations"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/metadata/annotations"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -26,7 +26,8 @@ type Ingress struct {
 // ErrUnknownIngress means the requested ingress, or an absent default, is unavailable.
 var ErrUnknownIngress = errors.New("unknown ingress")
 
-var errInvalidIngresses = errors.New("invalid ingress configuration")
+// ErrInvalidIngresses means the configured ingress list fails validation.
+var ErrInvalidIngresses = errors.New("invalid ingress configuration")
 
 // Resolve reads the Namespace and selects the default ingress when its annotation
 // is absent or names the default ingress, or resolves an exact ingress name.
@@ -35,9 +36,10 @@ var errInvalidIngresses = errors.New("invalid ingress configuration")
 // names and Gateway names, with nonempty Gateway namespaces. Hostnames are optional.
 // Gateway references come from the input list. Resolve does not read Gateways
 // or check their existence or readiness.
-// Invalid configuration and Namespace read failures return an empty Ingress and
-// an error. Unknown, removed, or empty annotated names, and an absent annotation
-// without a default, return ErrUnknownIngress without fallback.
+// All errors return an empty Ingress. Invalid configuration wraps ErrInvalidIngresses
+// before reading the Namespace. Namespace read failures wrap the underlying error.
+// Unknown, removed, or empty annotated names, and an absent annotation without a
+// default, wrap ErrUnknownIngress without fallback. Use errors.Is to match sentinels.
 // A direct API client needs get permission on core namespaces. A controller
 // using a cached client or watching Namespaces needs list and watch permission.
 // Controllers should watch Namespace creation, deletion, and changes to the
@@ -82,23 +84,23 @@ func validateIngresses(ingresses []Ingress) error {
 
 	for i, configured := range ingresses {
 		if configured.Name == "" {
-			return fmt.Errorf("%w: ingress at index %d has empty name", errInvalidIngresses, i)
+			return fmt.Errorf("%w: ingress at index %d has empty name", ErrInvalidIngresses, i)
 		}
 
 		if configured.GatewayName == "" {
-			return fmt.Errorf("%w: ingress %q has empty Gateway name", errInvalidIngresses, configured.Name)
+			return fmt.Errorf("%w: ingress %q has empty Gateway name", ErrInvalidIngresses, configured.Name)
 		}
 
 		if configured.GatewayNamespace == "" {
-			return fmt.Errorf("%w: ingress %q has empty Gateway namespace", errInvalidIngresses, configured.Name)
+			return fmt.Errorf("%w: ingress %q has empty Gateway namespace", ErrInvalidIngresses, configured.Name)
 		}
 
 		if _, found := names[configured.Name]; found {
-			return fmt.Errorf("%w: duplicate ingress name %q", errInvalidIngresses, configured.Name)
+			return fmt.Errorf("%w: duplicate ingress name %q", ErrInvalidIngresses, configured.Name)
 		}
 
 		if _, found := gateways[configured.GatewayName]; found {
-			return fmt.Errorf("%w: duplicate Gateway name %q", errInvalidIngresses, configured.GatewayName)
+			return fmt.Errorf("%w: duplicate Gateway name %q", ErrInvalidIngresses, configured.GatewayName)
 		}
 
 		names[configured.Name] = struct{}{}
@@ -110,7 +112,7 @@ func validateIngresses(ingresses []Ingress) error {
 	}
 
 	if defaultCount > 1 {
-		return fmt.Errorf("%w: expected at most one default ingress, got %d", errInvalidIngresses, defaultCount)
+		return fmt.Errorf("%w: expected at most one default ingress, got %d", ErrInvalidIngresses, defaultCount)
 	}
 
 	return nil

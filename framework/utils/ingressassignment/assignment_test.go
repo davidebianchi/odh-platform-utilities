@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/ingressassignment"
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/annotations"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/metadata/annotations"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/utils/ingressassignment"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
