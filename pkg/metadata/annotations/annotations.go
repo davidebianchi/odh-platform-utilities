@@ -1,9 +1,8 @@
 // Package annotations provides well-known annotation key constants for the
 // ODH platform. Annotations are divided into two categories:
 //
-//   - Contract annotations: read or written by the orchestrator. Incorrect
-//     values may break orchestrator management-state relay or resource
-//     lifecycle.
+//   - Contract annotations: read or written by platform controllers. Incorrect
+//     values may break resource assignment, management-state relay, or lifecycle.
 //   - Recommended standard annotations: the blessed convention for the
 //     deploy/GC annotation lifecycle. Deploy stamps them, GC reads them to
 //     detect stale resources. Module teams not using the shared deploy/GC
@@ -12,9 +11,13 @@ package annotations
 
 import "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 
-// --- Contract annotations (orchestrator reads/writes these) ---
+// --- Platform contract annotations ---
 
 const (
+	// IngressName selects a platform ingress by name for resources in a namespace.
+	// When absent, consumers use the projected default ingress if one exists.
+	IngressName = "opendatahub.io/ingress-name"
+
 	// ManagementStateAnnotation is set by the orchestrator on module CRs to
 	// relay the DSC management state (Managed / Removed).
 	//
