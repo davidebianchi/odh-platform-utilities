@@ -1530,19 +1530,21 @@ assert.Equal(t, "sha256:abc123...", result)
 opendatahub-operator's webhook/metrics TLS config, and operands such as
 kube-rbac-proxy need min-version and cipher flags of their own.
 
-Use root `pkg/tls`. Do not copy OpenShift `TLSProfiles` tables into the module.
+Use `framework/tls`. Do not copy OpenShift `TLSProfiles` tables into the module.
 
 **Expected wiring:**
 
 1. `configv1.Install(scheme)` and RBAC `get` on
    `apiservers.config.openshift.io` (`list`/`watch` only if the watcher is registered).
-2. In `main.go`: `Load` → `ConfigFromProfile` → metrics/webhook `TLSOpts`.
-   Register `SecurityProfileWatcher` only when `Watchable` is true; cancel the
-   manager context on change so the pod restarts.
-3. When rendering proxy Deployments: `FromAPIServer` with `FormatShort`
-   (kube-auth-proxy) or `FormatGo` (kube-rbac-proxy).
-4. If the module CR already carries a `TLSSecurityProfile`, use `FromProfile`
-   / `ConfigFromProfile` instead of fetching APIServer.
+2. In `main.go`: `LoadWithAdherence` → choose the profile with
+   `ShouldHonorClusterTLSProfile` → `ConfigFromProfile` → metrics/webhook
+   `TLSOpts`. Register `SecurityProfileWatcher` only when `Watchable` is true;
+   cancel the manager context on profile or adherence changes.
+3. When rendering proxy Deployments: `FromAPIServerWithCurvePreferences` with
+   `FormatShort` (kube-auth-proxy) or `FormatGo` (kube-rbac-proxy).
+4. If the module CR already carries a `TLSSecurityProfile`, use
+   `FromProfileStrict` / `ConfigFromProfile` as appropriate instead of fetching
+   APIServer.
 
 Full walkthrough, fallback policy, and copy-paste snippets:
 [TLS Configuration for Module Controllers](./module-tls.md).
@@ -1576,13 +1578,13 @@ import (
     "github.com/opendatahub-io/odh-platform-utilities/pkg/render/template"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/resources"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/status"
-    "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/webhook"
 )
 
 // Framework module — opinionated controller framework
 import (
     "github.com/opendatahub-io/odh-platform-utilities/framework/api"
+    "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
     "github.com/opendatahub-io/odh-platform-utilities/framework/controller/reconciler"
     "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
     "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/deploy"

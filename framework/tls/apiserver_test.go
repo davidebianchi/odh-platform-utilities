@@ -17,9 +17,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
-	pkgtls "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
+	pkgtls "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
 )
+
+const testClusterAPIServerName = "cluster"
 
 var errDenied = errors.New("denied")
 
@@ -34,7 +35,7 @@ func newTLSScheme(t *testing.T) *runtime.Scheme {
 
 func newClusterAPIServer(profile *configv1.TLSSecurityProfile) *configv1.APIServer {
 	return &configv1.APIServer{
-		ObjectMeta: metav1.ObjectMeta{Name: cluster.ClusterAPIServerObj},
+		ObjectMeta: metav1.ObjectMeta{Name: testClusterAPIServerName},
 		Spec: configv1.APIServerSpec{
 			TLSSecurityProfile: profile,
 		},
@@ -50,7 +51,7 @@ type erroringClient struct {
 func (c *erroringClient) Get(
 	ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption,
 ) error {
-	if c.getErr != nil && key.Name == cluster.ClusterAPIServerObj {
+	if c.getErr != nil && key.Name == testClusterAPIServerName {
 		return c.getErr
 	}
 
@@ -160,7 +161,7 @@ func TestFromAPIServer(t *testing.T) { //nolint:funlen // Table-driven APIServer
 			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
 			getErr: k8serr.NewForbidden(
 				schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"},
-				cluster.ClusterAPIServerObj,
+				testClusterAPIServerName,
 				errDenied,
 			),
 		}
@@ -216,6 +217,8 @@ func TestLoad(t *testing.T) { //nolint:funlen // Fallback-policy cases for manag
 		result, err := pkgtls.Load(ctx, cli)
 		require.NoError(t, err)
 		assert.True(t, result.Watchable)
+		assert.False(t, result.UsedFallback)
+		assert.Equal(t, configv1.TLSAdherencePolicyNoOpinion, result.AdherencePolicy)
 		assert.Equal(t, configv1.VersionTLS13, result.Spec.MinTLSVersion)
 	})
 
@@ -291,7 +294,7 @@ func TestLoad(t *testing.T) { //nolint:funlen // Fallback-policy cases for manag
 			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
 			getErr: k8serr.NewForbidden(
 				schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"},
-				cluster.ClusterAPIServerObj,
+				testClusterAPIServerName,
 				errDenied,
 			),
 		}

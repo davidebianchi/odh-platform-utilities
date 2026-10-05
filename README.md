@@ -61,7 +61,6 @@ pipeline out of the box.
 | `pkg/render` | Shared types (`ReconciliationRequest`, `Fn`), Prometheus metrics |
 | `pkg/resources` | Kubernetes resource helpers (`Decode`, `SetLabels`, `SetAnnotations`, `UnstructuredList`) |
 | `pkg/template` | Template function map (`indent`, `nindent`, `toYaml`) |
-| `pkg/tls` | OpenShift TLS profile resolution: APIServer fetch, `crypto/tls.Config` mapping, proxy flag strings, profile watcher |
 
 ## Framework Module
 
@@ -83,6 +82,7 @@ go get github.com/opendatahub-io/odh-platform-utilities/framework
 | `api` | Re-exports root-module platform types plus framework-specific `Release` and `Platform` types |
 | `cluster` | CRD existence checks, API availability, singleton listing |
 | `cluster/gvk` | Well-known `GroupVersionKind` constants (Deployment, ClusterRole, monitoring CRDs, etc.) |
+| `tls` | `controller-runtime-common` TLS primitives plus ODH adherence policy, strict validation, TLS 1.2 cipher filtering, and proxy flags |
 | `controller/reconciler` | Generic `Reconciler` with finalizer management, condition aggregation, phase computation, and status SSA |
 | `controller/actions` | Action function type (`Fn`) used to build reconciliation pipelines |
 | `controller/actions/deploy` | Resource deployment via SSA or patch with caching, merge strategies (Deployments, ClusterRoles, observability CRs), and per-GVK customizers |
@@ -255,36 +255,45 @@ strategy.
 
 ### TLS profile resolution
 
-Module controllers that serve webhooks/metrics or stamp proxy TLS flags can
-resolve the cluster profile from `apiservers.config.openshift.io/cluster`.
-This is the one root-module package that imports `github.com/openshift/api`.
-Register `configv1.Install(scheme)` and grant `get` on that resource.
-Grant `list` and `watch` only when registering `SecurityProfileWatcher`.
+Framework modules can resolve the cluster profile and adherence policy from
+`apiservers.config.openshift.io/cluster` with
+`github.com/opendatahub-io/odh-platform-utilities/framework/tls`. Register
+`configv1.Install(scheme)` and grant `get` on that resource. Grant `list` and
+`watch` only when registering `SecurityProfileWatcher`.
 
 ```go
-import pkgtls "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
+import (
+	configv1 "github.com/openshift/api/config/v1"
+	pkgtls "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
+)
 
-result, err := pkgtls.Load(ctx, client)
+result, err := pkgtls.LoadWithAdherence(ctx, client)
 if err != nil {
     return fmt.Errorf("load TLS profile: %w", err)
 }
-tlsOpts, unsupported := pkgtls.ConfigFromProfile(result.Spec)
+profile := result.Spec
+if !pkgtls.ShouldHonorClusterTLSProfile(result.AdherencePolicy) {
+    profile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+}
+tlsOpts, unsupported := pkgtls.ConfigFromProfile(profile)
 if len(unsupported) > 0 {
-    setupLog.Info("dropping cipher names unsupported by Go", "ciphers", unsupported)
+    setupLog.Info("dropping unsupported TLS settings", "settings", unsupported)
 }
 
-minVersion, ciphers, err := pkgtls.FromAPIServer(ctx, client, pkgtls.FormatShort)
+minVersion, ciphers, curves, err := pkgtls.FromAPIServerWithCurvePreferences(ctx, client, pkgtls.FormatShort)
 if err != nil {
     return fmt.Errorf("resolve TLS profile: %w", err)
 }
 ```
 
-On vanilla Kubernetes, `Load` and `FromAPIServer` fall back to the Intermediate
-profile. Register `SecurityProfileWatcher` only when `result.Watchable` is true.
+On vanilla Kubernetes, `LoadWithAdherence` and the adherence-aware proxy helper
+fall back to the Intermediate profile. Register `SecurityProfileWatcher` only
+when `result.Watchable` is true. Initialize its adherence state from
+`result.AdherencePolicy` when setting `OnAdherencePolicyChange`.
 
 See [docs/module-tls.md](./docs/module-tls.md) for the expected module wiring
 (scheme, RBAC, manager startup, proxy flags). See
-[pkg/tls/AGENTS.md](./pkg/tls/AGENTS.md) for fallback policy and the OpenShift
+[framework/tls/AGENTS.md](./framework/tls/AGENTS.md) for fallback policy and the OpenShift
 API exception.
 
 ## Manifest Rendering
