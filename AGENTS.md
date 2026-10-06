@@ -274,9 +274,9 @@ supports unmanaged resources (annotation-based opt-out).
 | `LabelSelectorPredicate` | `pkg/controller/predicates` | Event filter by label selector |
 | `AnnotationChangedPredicate` | `pkg/controller/predicates` | Update filter on single annotation key |
 | `DeletionPredicate` | `pkg/controller/predicates` | Pass only delete events |
-| `FromAPIServer` | `pkg/tls` | Fetch cluster TLS profile as version/cipher flag strings |
-| `ConfigFromProfile` | `pkg/tls` | Map a TLSProfileSpec to controller-runtime TLSOpts |
-| `SecurityProfileWatcher` | `pkg/tls` | Restart the manager when the cluster TLS profile changes |
+| `FromAPIServer` | `framework/tls` | Fetch cluster TLS profile as version/cipher flag strings |
+| `ConfigFromProfile` | `framework/tls` | Map a TLSProfileSpec to controller-runtime TLSOpts |
+| `SecurityProfileWatcher` | `framework/tls` | Restart the manager when the cluster TLS profile or adherence changes |
 
 ## Build, Test, and Lint Commands
 
@@ -377,10 +377,11 @@ Keep external dependencies minimal. Direct dependencies are limited to:
 - `sigs.k8s.io/controller-runtime` — controller-runtime client interfaces
 - `k8s.io/api` — core Kubernetes API types (for admission)
 
-`pkg/tls` is a scoped exception: it may import `github.com/openshift/api/config/v1`
-and `github.com/openshift/library-go/pkg/crypto` so TLS named profiles and cipher
-mapping stay aligned with cluster defaults. No other root-module package may
-import those modules. `pkg/cluster/openshift` stays unstructured.
+`framework/tls` is a scoped framework-module exception: it may import
+`github.com/openshift/api/config/v1`, `github.com/openshift/library-go/pkg/crypto`,
+and `github.com/openshift/controller-runtime-common/pkg/tls` for OpenShift TLS
+profile and runtime helpers. No other framework package may import those modules.
+`pkg/cluster/openshift` stays unstructured.
 
 Do not introduce dependencies on
 `opendatahub-operator` internal packages.

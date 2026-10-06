@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	ctrlrecorder "sigs.k8s.io/controller-runtime/pkg/recorder"
 
 	. "github.com/onsi/gomega"
 )
@@ -27,7 +28,7 @@ type testManager struct {
 
 	client   client.Client
 	scheme   *runtime.Scheme
-	recorder events.EventRecorder
+	recorder ctrlrecorder.EventRecorder
 	config   *rest.Config
 }
 
@@ -50,7 +51,7 @@ func (m *testManager) GetScheme() *runtime.Scheme {
 	return m.scheme
 }
 
-func (m *testManager) GetEventRecorder(string) events.EventRecorder {
+func (m *testManager) GetEventRecorder(string) ctrlrecorder.EventRecorder {
 	return m.recorder
 }
 

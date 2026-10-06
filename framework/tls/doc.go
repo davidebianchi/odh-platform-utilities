@@ -5,10 +5,13 @@
 //
 // Named profiles (Old, Intermediate, Modern) and their cipher lists live in
 // configv1.TLSProfiles and are allowed to change as Mozilla/OpenShift
-// guidelines evolve. This package is a scoped exception to the root-module
-// rule that forbids github.com/openshift/api: using those types keeps
-// resolution aligned with apiservers.config.openshift.io/cluster. Other root
-// packages must not import OpenShift APIs.
+// guidelines evolve. This framework package keeps resolution aligned with
+// apiservers.config.openshift.io/cluster. Other framework packages must not
+// import OpenShift TLS profile APIs or library-go crypto helpers.
+//
+// Generic TLS profile parsing, TLSConfig mapping, and APIServer watching reuse
+// controller-runtime-common. This package adds adherence-aware loading and the
+// stricter validation needed by ODH's TLS policy.
 //
 // # Typical manager wiring
 //
@@ -19,11 +22,15 @@
 //
 // Then at startup:
 //
-//	result, err := tls.Load(ctx, bootstrapClient)
+//	result, err := tls.LoadWithAdherence(ctx, bootstrapClient)
 //	if err != nil {
 //	    return fmt.Errorf("load TLS profile: %w", err)
 //	}
-//	tlsOpts, unsupported := tls.ConfigFromProfile(result.Spec)
+//	profile := result.Spec
+//	if !tls.ShouldHonorClusterTLSProfile(result.AdherencePolicy) {
+//	    profile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+//	}
+//	tlsOpts, unsupported := tls.ConfigFromProfile(profile)
 //	if len(unsupported) > 0 {
 //	    setupLog.Info("dropping cipher names unsupported by Go", "ciphers", unsupported)
 //	}
@@ -43,9 +50,13 @@
 //	}
 //	if result.Watchable {
 //	    watcher := &tls.SecurityProfileWatcher{
-//	        Client:                mgr.GetClient(),
-//	        InitialTLSProfileSpec: result.Spec,
+//	        Client:                    mgr.GetClient(),
+//	        InitialTLSProfileSpec:     result.Spec,
+//	        InitialTLSAdherencePolicy: result.AdherencePolicy,
 //	        OnProfileChange: func(context.Context, configv1.TLSProfileSpec, configv1.TLSProfileSpec) {
+//	            cancel()
+//	        },
+//	        OnAdherencePolicyChange: func(context.Context, configv1.TLSAdherencePolicy, configv1.TLSAdherencePolicy) {
 //	            cancel()
 //	        },
 //	    }
@@ -60,8 +71,9 @@
 // Required RBAC: get on apiservers.config.openshift.io. list and watch are
 // required only when registering SecurityProfileWatcher.
 //
-// On vanilla Kubernetes, Load falls back to the Intermediate profile and
-// Watchable is false. FromAPIServer does the same for proxy flag strings.
+// On vanilla Kubernetes, LoadWithAdherence falls back to the Intermediate
+// profile with NoOpinion adherence and Watchable false. The adherence-aware
+// proxy helpers do the same for proxy flag strings.
 //
-// See docs/module-tls.md for the expected module wiring.
+// See ../../docs/module-tls.md for the expected module wiring.
 package tls
