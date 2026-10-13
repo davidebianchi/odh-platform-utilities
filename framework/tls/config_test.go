@@ -18,9 +18,9 @@ func TestConfigFromProfile_TLS12SetsCipherSuites(t *testing.T) {
 	fn, unsupported := pkgtls.ConfigFromProfile(spec)
 	require.NotNil(t, fn)
 	assert.Equal(t, []string{
-		"TLS_AES_128_GCM_SHA256",
-		"TLS_AES_256_GCM_SHA384",
-		"TLS_CHACHA20_POLY1305_SHA256",
+		ianaTLS13AES128GCM,
+		ianaTLS13AES256GCM,
+		ianaTLS13CHACHA20,
 	}, unsupported)
 
 	cfg := &tls.Config{}
@@ -38,15 +38,15 @@ func TestConfigFromProfile_TLS12DropsTLS13Ciphers(t *testing.T) {
 	spec := configv1.TLSProfileSpec{
 		MinTLSVersion: configv1.VersionTLS12,
 		Ciphers: []string{
-			"TLS_AES_128_GCM_SHA256",
-			"ECDHE-RSA-AES128-GCM-SHA256",
+			ianaTLS13AES128GCM,
+			openSSLECDHERSAAES128GCM,
 		},
 	}
 	fn, unsupported := pkgtls.ConfigFromProfile(spec)
 	cfg := &tls.Config{}
 	fn(cfg)
 
-	assert.Equal(t, []string{"TLS_AES_128_GCM_SHA256"}, unsupported)
+	assert.Equal(t, []string{ianaTLS13AES128GCM}, unsupported)
 	assert.Equal(t, []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}, cfg.CipherSuites)
 }
 
@@ -70,15 +70,42 @@ func TestConfigFromProfile_UnsupportedCiphersReported(t *testing.T) {
 
 	spec := configv1.TLSProfileSpec{
 		MinTLSVersion: configv1.VersionTLS12,
-		Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256", "DHE-RSA-AES128-GCM-SHA256"},
+		Ciphers:       []string{openSSLECDHERSAAES128GCM, openSSLDHERSAAES128GCM},
 	}
 	fn, unsupported := pkgtls.ConfigFromProfile(spec)
 	require.NotNil(t, fn)
-	assert.Equal(t, []string{"DHE-RSA-AES128-GCM-SHA256"}, unsupported)
+	assert.Equal(t, []string{openSSLDHERSAAES128GCM}, unsupported)
 
 	cfg := &tls.Config{}
 	fn(cfg)
 	assert.Len(t, cfg.CipherSuites, 1)
+}
+
+func TestConfigFromProfile_TLS10HonorsOldProfile(t *testing.T) {
+	t.Parallel()
+
+	spec := *configv1.TLSProfiles[configv1.TLSProfileOldType]
+	fn, unsupported := pkgtls.ConfigFromProfile(spec)
+	require.NotNil(t, fn)
+	// The TLS 1.3 suites are not configurable below TLS 1.3; the CBC SHA384/
+	// SHA256 suites are pruned by library-go's ciphersUnsupportedByGo map.
+	assert.ElementsMatch(t, []string{
+		ianaTLS13AES128GCM,
+		ianaTLS13AES256GCM,
+		ianaTLS13CHACHA20,
+		openSSLECDHEECDSAAES256SHA,
+		openSSLECDHERSAAES256SHA384,
+		openSSLAES256SHA256,
+	}, unsupported)
+
+	cfg := &tls.Config{}
+	fn(cfg)
+
+	assert.Equal(t, uint16(tls.VersionTLS10), cfg.MinVersion)
+	assert.NotEmpty(t, cfg.CipherSuites)
+	for _, code := range cfg.CipherSuites {
+		assert.NotEqual(t, tls.TLS_AES_128_GCM_SHA256, code)
+	}
 }
 
 func TestConfigFromProfile_UnknownMinVersionFloorsToTLS12(t *testing.T) {
@@ -86,7 +113,7 @@ func TestConfigFromProfile_UnknownMinVersionFloorsToTLS12(t *testing.T) {
 
 	spec := configv1.TLSProfileSpec{
 		MinTLSVersion: "VersionTLS99",
-		Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+		Ciphers:       []string{openSSLECDHERSAAES128GCM},
 	}
 	fn, _ := pkgtls.ConfigFromProfile(spec)
 	cfg := &tls.Config{}
@@ -99,7 +126,7 @@ func TestConfigFromProfile_SkipsUnknownGroups(t *testing.T) {
 
 	spec := configv1.TLSProfileSpec{
 		MinTLSVersion: configv1.VersionTLS12,
-		Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+		Ciphers:       []string{openSSLECDHERSAAES128GCM},
 		Groups: []configv1.TLSGroup{
 			configv1.TLSGroupX25519,
 			"not-a-group",
@@ -119,7 +146,7 @@ func TestConfigFromProfile_EmptyGroupsLeaveCurvePreferencesUnset(t *testing.T) {
 
 	spec := configv1.TLSProfileSpec{
 		MinTLSVersion: configv1.VersionTLS12,
-		Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+		Ciphers:       []string{openSSLECDHERSAAES128GCM},
 	}
 	fn, _ := pkgtls.ConfigFromProfile(spec)
 	cfg := &tls.Config{}
