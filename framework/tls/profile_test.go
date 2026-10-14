@@ -11,6 +11,65 @@ import (
 	pkgtls "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
 )
 
+// Cipher suite names used across the TLS tests, spelled as OpenShift profile
+// data carries them: OpenSSL names for TLS <= 1.2 suites and IANA names for
+// TLS 1.3 suites and library-go's mapping output. No library exports these
+// strings as constants (openshift/api holds them as TLSProfiles data and
+// library-go as map keys), so they are defined once here.
+const (
+	// OpenSSL-form cipher names, as they appear in
+	// APIServer tlsSecurityProfile custom cipher lists.
+	openSSLECDHERSAAES128GCM    = "ECDHE-RSA-AES128-GCM-SHA256"
+	openSSLECDHERSAAES256SHA384 = "ECDHE-RSA-AES256-SHA384"
+	openSSLECDHEECDSAAES256SHA  = "ECDHE-ECDSA-AES256-SHA384"
+	openSSLECDHERSAAES256GCM    = "ECDHE-RSA-AES256-GCM-SHA384"
+	openSSLDHERSAAES128GCM      = "DHE-RSA-AES128-GCM-SHA256"
+	openSSLAES256SHA256         = "AES256-SHA256"
+
+	// IANA-form cipher names: the TLS 1.3 suite names and library-go's
+	// OpenSSLToIANACipherSuites output.
+	ianaTLS13AES128GCM    = "TLS_AES_128_GCM_SHA256"
+	ianaTLS13AES256GCM    = "TLS_AES_256_GCM_SHA384"
+	ianaTLS13CHACHA20     = "TLS_CHACHA20_POLY1305_SHA256"
+	ianaECDHERSAAES128GCM = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+	ianaECDHERSACHACHA20  = "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+	ianaRSA3DES           = "TLS_RSA_WITH_3DES_EDE_CBC_SHA"
+)
+
+// intermediateIANACiphers is the expected comma-joined IANA cipher string for
+// the Intermediate TLS profile. Derived from openshift/api
+// TLSProfileIntermediateType through library-go OpenSSL→IANA mapping, not from
+// CipherSuitesFromSpec, so it is an independent oracle.
+const intermediateIANACiphers = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256," +
+	"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256," +
+	"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384," +
+	"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384," +
+	"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256," +
+	"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+
+const tls13IANACiphers = "TLS_AES_128_GCM_SHA256," +
+	"TLS_AES_256_GCM_SHA384," +
+	"TLS_CHACHA20_POLY1305_SHA256"
+
+const oldIANACiphers = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256," +
+	"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256," +
+	"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384," +
+	"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384," +
+	"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256," +
+	"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256," +
+	"TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256," +
+	"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256," +
+	"TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA," +
+	"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA," +
+	"TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA," +
+	"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA," +
+	"TLS_RSA_WITH_AES_128_GCM_SHA256," +
+	"TLS_RSA_WITH_AES_256_GCM_SHA384," +
+	"TLS_RSA_WITH_AES_128_CBC_SHA256," +
+	"TLS_RSA_WITH_AES_128_CBC_SHA," +
+	"TLS_RSA_WITH_AES_256_CBC_SHA," +
+	"TLS_RSA_WITH_3DES_EDE_CBC_SHA"
+
 func TestMinVersionFromSpec(t *testing.T) {
 	t.Parallel()
 
@@ -24,10 +83,10 @@ func TestMinVersionFromSpec(t *testing.T) {
 		{name: "TLS 1.3 short", version: configv1.VersionTLS13, format: pkgtls.FormatShort, expected: "TLS1.3"},
 		{name: "TLS 1.2 Go", version: configv1.VersionTLS12, format: pkgtls.FormatGo, expected: "VersionTLS12"},
 		{name: "TLS 1.3 Go", version: configv1.VersionTLS13, format: pkgtls.FormatGo, expected: "VersionTLS13"},
-		{name: "TLS 1.0 floors to 1.2 short", version: configv1.VersionTLS10, format: pkgtls.FormatShort, expected: "TLS1.2"},
-		{name: "TLS 1.0 floors to 1.2 Go", version: configv1.VersionTLS10, format: pkgtls.FormatGo, expected: "VersionTLS12"},
-		{name: "TLS 1.1 floors to 1.2 short", version: configv1.VersionTLS11, format: pkgtls.FormatShort, expected: "TLS1.2"},
-		{name: "TLS 1.1 floors to 1.2 Go", version: configv1.VersionTLS11, format: pkgtls.FormatGo, expected: "VersionTLS12"},
+		{name: "TLS 1.0 short", version: configv1.VersionTLS10, format: pkgtls.FormatShort, expected: "TLS1.0"},
+		{name: "TLS 1.0 Go", version: configv1.VersionTLS10, format: pkgtls.FormatGo, expected: "VersionTLS10"},
+		{name: "TLS 1.1 short", version: configv1.VersionTLS11, format: pkgtls.FormatShort, expected: "TLS1.1"},
+		{name: "TLS 1.1 Go", version: configv1.VersionTLS11, format: pkgtls.FormatGo, expected: "VersionTLS11"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,13 +154,13 @@ func TestFromProfile_Custom(t *testing.T) {
 		Type: configv1.TLSProfileCustomType,
 		Custom: &configv1.CustomTLSProfile{
 			TLSProfileSpec: configv1.TLSProfileSpec{
-				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				Ciphers:       []string{openSSLECDHERSAAES128GCM},
 				MinTLSVersion: configv1.VersionTLS12,
 			},
 		},
 	}, pkgtls.FormatShort)
 	assert.Equal(t, "TLS1.2", minVersion)
-	assert.Equal(t, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", cipherSuites)
+	assert.Equal(t, ianaECDHERSAAES128GCM, cipherSuites)
 }
 
 func TestIsVersionSupported(t *testing.T) {
@@ -119,7 +178,7 @@ func TestProfileSpecFromSecurityProfile(t *testing.T) { //nolint:funlen // Table
 	intermediateSpec := configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
 	oldSpec := configv1.TLSProfiles[configv1.TLSProfileOldType]
 	modernSpec := configv1.TLSProfiles[configv1.TLSProfileModernType]
-	customCiphers := []string{"ECDHE-RSA-AES128-GCM-SHA256"}
+	customCiphers := []string{openSSLECDHERSAAES128GCM}
 	customSpec := &configv1.TLSProfileSpec{
 		Ciphers:       customCiphers,
 		MinTLSVersion: configv1.VersionTLS11,
@@ -194,7 +253,7 @@ func TestCipherSuitesFromSpec(t *testing.T) {
 		t.Parallel()
 
 		spec := &configv1.TLSProfileSpec{
-			Ciphers:       []string{"DHE-RSA-AES128-GCM-SHA256", "DHE-RSA-AES256-GCM-SHA384"},
+			Ciphers:       []string{openSSLDHERSAAES128GCM, "DHE-RSA-AES256-GCM-SHA384"},
 			MinTLSVersion: configv1.VersionTLS12,
 		}
 		assert.Equal(t, intermediateIANACiphers, pkgtls.CipherSuitesFromSpec(ctx, spec))
@@ -205,7 +264,7 @@ func TestCipherSuitesFromSpec(t *testing.T) {
 
 		spec := &configv1.TLSProfileSpec{
 			MinTLSVersion: configv1.VersionTLS12,
-			Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
+			Ciphers:       []string{ianaTLS13AES128GCM},
 		}
 		assert.Equal(t, intermediateIANACiphers, pkgtls.CipherSuitesFromSpec(ctx, spec))
 	})
@@ -231,10 +290,10 @@ func TestCipherSuitesFromSpec(t *testing.T) {
 		t.Parallel()
 
 		spec := &configv1.TLSProfileSpec{
-			Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256", "DHE-RSA-AES128-GCM-SHA256"},
+			Ciphers:       []string{openSSLECDHERSAAES128GCM, openSSLDHERSAAES128GCM},
 			MinTLSVersion: configv1.VersionTLS12,
 		}
-		assert.Equal(t, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", pkgtls.CipherSuitesFromSpec(ctx, spec))
+		assert.Equal(t, ianaECDHERSAAES128GCM, pkgtls.CipherSuitesFromSpec(ctx, spec))
 	})
 
 	t.Run("intermediate profile produces expected IANA ciphers", func(t *testing.T) {
@@ -251,37 +310,3 @@ func TestCipherSuitesFromSpec(t *testing.T) {
 		assert.Equal(t, oldIANACiphers, got)
 	})
 }
-
-// intermediateIANACiphers is the expected comma-joined IANA cipher string for
-// the Intermediate TLS profile. Derived from openshift/api
-// TLSProfileIntermediateType through library-go OpenSSL→IANA mapping, not from
-// CipherSuitesFromSpec, so it is an independent oracle.
-const intermediateIANACiphers = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256," +
-	"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256," +
-	"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384," +
-	"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384," +
-	"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256," +
-	"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
-
-const tls13IANACiphers = "TLS_AES_128_GCM_SHA256," +
-	"TLS_AES_256_GCM_SHA384," +
-	"TLS_CHACHA20_POLY1305_SHA256"
-
-const oldIANACiphers = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256," +
-	"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256," +
-	"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384," +
-	"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384," +
-	"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256," +
-	"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256," +
-	"TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256," +
-	"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256," +
-	"TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA," +
-	"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA," +
-	"TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA," +
-	"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA," +
-	"TLS_RSA_WITH_AES_128_GCM_SHA256," +
-	"TLS_RSA_WITH_AES_256_GCM_SHA384," +
-	"TLS_RSA_WITH_AES_128_CBC_SHA256," +
-	"TLS_RSA_WITH_AES_128_CBC_SHA," +
-	"TLS_RSA_WITH_AES_256_CBC_SHA," +
-	"TLS_RSA_WITH_3DES_EDE_CBC_SHA"

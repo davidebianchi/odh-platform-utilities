@@ -49,26 +49,21 @@ func TestValidateStrictTLSProfile(t *testing.T) { //nolint:funlen // Table-drive
 		{name: "intermediate profile", spec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]},
 		{name: "modern profile", spec: *configv1.TLSProfiles[configv1.TLSProfileModernType]},
 		{
-			name: "unsupported version",
-			spec: configv1.TLSProfileSpec{
-				MinTLSVersion: configv1.VersionTLS10,
-				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
-			},
-			wantErr: "minimum version",
+			name: "old profile minimum is honored",
+			spec: *configv1.TLSProfiles[configv1.TLSProfileOldType],
 		},
 		{
-			name: "TLS 1.1 is unsupported",
+			name: "custom TLS 1.1 minimum is honored",
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS11,
-				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				Ciphers:       []string{openSSLECDHERSAAES128GCM},
 			},
-			wantErr: "minimum version",
 		},
 		{
 			name: "unknown version is unsupported",
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: "VersionTLS99",
-				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				Ciphers:       []string{openSSLECDHERSAAES128GCM},
 			},
 			wantErr: "minimum version",
 		},
@@ -83,7 +78,7 @@ func TestValidateStrictTLSProfile(t *testing.T) { //nolint:funlen // Table-drive
 			name: "all TLS 1.2 ciphers unsupported",
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12,
-				Ciphers:       []string{"DHE-RSA-AES128-GCM-SHA256"},
+				Ciphers:       []string{openSSLDHERSAAES128GCM},
 			},
 			wantErr: "no cipher suites supported",
 		},
@@ -91,7 +86,7 @@ func TestValidateStrictTLSProfile(t *testing.T) { //nolint:funlen // Table-drive
 			name: "TLS 1.3-only ciphers do not satisfy TLS 1.2",
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12,
-				Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
+				Ciphers:       []string{ianaTLS13AES128GCM},
 			},
 			wantErr: "no cipher suites supported",
 		},
@@ -100,8 +95,8 @@ func TestValidateStrictTLSProfile(t *testing.T) { //nolint:funlen // Table-drive
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12,
 				Ciphers: []string{
-					"TLS_AES_128_GCM_SHA256",
-					"ECDHE-RSA-AES128-GCM-SHA256",
+					ianaTLS13AES128GCM,
+					openSSLECDHERSAAES128GCM,
 				},
 			},
 		},
@@ -109,7 +104,7 @@ func TestValidateStrictTLSProfile(t *testing.T) { //nolint:funlen // Table-drive
 			name: "TLS 1.3 cipher list remains informational",
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS13,
-				Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
+				Ciphers:       []string{ianaTLS13AES128GCM},
 			},
 		},
 		{
@@ -122,7 +117,7 @@ func TestValidateStrictTLSProfile(t *testing.T) { //nolint:funlen // Table-drive
 			name: "all groups unsupported",
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12,
-				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				Ciphers:       []string{openSSLECDHERSAAES128GCM},
 				Groups:        []configv1.TLSGroup{"unknown-group"},
 			},
 			wantErr: "no TLS groups supported",
@@ -131,7 +126,7 @@ func TestValidateStrictTLSProfile(t *testing.T) { //nolint:funlen // Table-drive
 			name: "partially supported groups",
 			spec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12,
-				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				Ciphers:       []string{openSSLECDHERSAAES128GCM},
 				Groups:        []configv1.TLSGroup{"unknown-group", configv1.TLSGroupX25519},
 			},
 		},
@@ -210,14 +205,14 @@ func TestFromProfileStrict(t *testing.T) {
 	profile := &configv1.TLSSecurityProfile{
 		Type: configv1.TLSProfileCustomType,
 		Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
-			Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+			Ciphers:       []string{openSSLECDHERSAAES128GCM},
 			MinTLSVersion: configv1.VersionTLS12,
 		}},
 	}
 	minVersion, ciphers, err := pkgtls.FromProfileStrict(context.Background(), profile, pkgtls.FormatGo)
 	require.NoError(t, err)
 	assert.Equal(t, "VersionTLS12", minVersion)
-	assert.Equal(t, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", ciphers)
+	assert.Equal(t, ianaECDHERSAAES128GCM, ciphers)
 
 	minVersion, ciphers, err = pkgtls.FromProfileStrict(context.Background(), &configv1.TLSSecurityProfile{}, pkgtls.FormatShort)
 	require.NoError(t, err)
@@ -228,21 +223,44 @@ func TestFromProfileStrict(t *testing.T) {
 	_, _, err = pkgtls.FromProfileStrict(context.Background(), unsupported, pkgtls.FormatShort)
 	require.ErrorContains(t, err, "unsupported TLS profile type")
 
-	for _, version := range []configv1.TLSProtocolVersion{
-		configv1.VersionTLS10,
-		configv1.VersionTLS11,
-		"VersionTLS99",
+	for _, tt := range []struct {
+		version   configv1.TLSProtocolVersion
+		want      string
+		wantShort string
+	}{
+		{version: configv1.VersionTLS10, want: "VersionTLS10", wantShort: "TLS1.0"},
+		{version: configv1.VersionTLS11, want: "VersionTLS11", wantShort: "TLS1.1"},
 	} {
 		profile := &configv1.TLSSecurityProfile{
 			Type: configv1.TLSProfileCustomType,
 			Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
-				MinTLSVersion: version,
-				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				MinTLSVersion: tt.version,
+				Ciphers:       []string{openSSLECDHERSAAES128GCM},
 			}},
 		}
-		_, _, err = pkgtls.FromProfileStrict(context.Background(), profile, pkgtls.FormatShort)
-		require.ErrorContains(t, err, "minimum version")
+
+		// Both formats express all four version names: kube-auth-proxy
+		// (short) and kube-rbac-proxy (Go) both parse them.
+		shortMinVersion, shortCiphers, shortErr := pkgtls.FromProfileStrict(context.Background(), profile, pkgtls.FormatShort)
+		require.NoError(t, shortErr)
+		assert.Equal(t, tt.wantShort, shortMinVersion)
+		assert.Equal(t, ianaECDHERSAAES128GCM, shortCiphers)
+
+		minVersion, ciphers, goErr := pkgtls.FromProfileStrict(context.Background(), profile, pkgtls.FormatGo)
+		require.NoError(t, goErr)
+		assert.Equal(t, tt.want, minVersion)
+		assert.Equal(t, ianaECDHERSAAES128GCM, ciphers)
 	}
+
+	profile = &configv1.TLSSecurityProfile{
+		Type: configv1.TLSProfileCustomType,
+		Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
+			MinTLSVersion: "VersionTLS99",
+			Ciphers:       []string{openSSLECDHERSAAES128GCM},
+		}},
+	}
+	_, _, err = pkgtls.FromProfileStrict(context.Background(), profile, pkgtls.FormatShort)
+	require.ErrorContains(t, err, "minimum version")
 }
 
 func TestFromProfileStrictTLS13CipherFiltering(t *testing.T) {
@@ -258,25 +276,25 @@ func TestFromProfileStrictTLS13CipherFiltering(t *testing.T) {
 		{
 			name:       "TLS 1.3-only suites cannot satisfy TLS 1.2",
 			minVersion: configv1.VersionTLS12,
-			ciphers:    []string{"TLS_AES_128_GCM_SHA256"},
+			ciphers:    []string{ianaTLS13AES128GCM},
 			wantErr:    "no cipher suites supported",
 		},
 		{
 			name:        "mixed TLS 1.2 and TLS 1.3 suites keep only TLS 1.2",
 			minVersion:  configv1.VersionTLS12,
-			ciphers:     []string{"TLS_AES_128_GCM_SHA256", "ECDHE-RSA-AES128-GCM-SHA256"},
-			wantCiphers: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			ciphers:     []string{ianaTLS13AES128GCM, openSSLECDHERSAAES128GCM},
+			wantCiphers: ianaECDHERSAAES128GCM,
 		},
 		{
 			name:        "TLS 1.3 cipher subset is informational",
 			minVersion:  configv1.VersionTLS13,
-			ciphers:     []string{"TLS_AES_128_GCM_SHA256"},
-			wantCiphers: "TLS_AES_128_GCM_SHA256",
+			ciphers:     []string{ianaTLS13AES128GCM},
+			wantCiphers: ianaTLS13AES128GCM,
 		},
 		{
 			name:       "unmappable TLS 1.3 ciphers are informational",
 			minVersion: configv1.VersionTLS13,
-			ciphers:    []string{"DHE-RSA-AES128-GCM-SHA256"},
+			ciphers:    []string{openSSLDHERSAAES128GCM},
 		},
 	}
 	for _, tt := range tests {
@@ -316,7 +334,7 @@ func TestFromAPIServerWithCurvePreferences(t *testing.T) { //nolint:funlen // Ta
 	strictProfile := &configv1.TLSSecurityProfile{
 		Type: configv1.TLSProfileCustomType,
 		Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
-			Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+			Ciphers:       []string{openSSLECDHERSAAES128GCM},
 			MinTLSVersion: configv1.VersionTLS12,
 			Groups:        []configv1.TLSGroup{configv1.TLSGroupX25519},
 		}},
@@ -362,7 +380,7 @@ func TestFromAPIServerWithCurvePreferences(t *testing.T) { //nolint:funlen // Ta
 			name:        "Strict applies the profile",
 			objects:     []client.Object{apiServer(configv1.TLSAdherencePolicyStrictAllComponents)},
 			wantVer:     "TLS1.2",
-			wantCiphers: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			wantCiphers: ianaECDHERSAAES128GCM,
 			wantCurves:  "29",
 		},
 		{
@@ -379,7 +397,7 @@ func TestFromAPIServerWithCurvePreferences(t *testing.T) { //nolint:funlen // Ta
 					Type: configv1.TLSProfileCustomType,
 					Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
 						MinTLSVersion: configv1.VersionTLS12,
-						Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
+						Ciphers:       []string{ianaTLS13AES128GCM},
 						Groups:        []configv1.TLSGroup{configv1.TLSGroupX25519},
 					}},
 				},
@@ -394,14 +412,14 @@ func TestFromAPIServerWithCurvePreferences(t *testing.T) { //nolint:funlen // Ta
 					Type: configv1.TLSProfileCustomType,
 					Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
 						MinTLSVersion: configv1.VersionTLS12,
-						Ciphers:       []string{"TLS_AES_128_GCM_SHA256", "ECDHE-RSA-AES128-GCM-SHA256"},
+						Ciphers:       []string{ianaTLS13AES128GCM, openSSLECDHERSAAES128GCM},
 						Groups:        []configv1.TLSGroup{configv1.TLSGroupX25519},
 					}},
 				},
 				configv1.TLSAdherencePolicyStrictAllComponents,
 			)},
 			wantVer:     "TLS1.2",
-			wantCiphers: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			wantCiphers: ianaECDHERSAAES128GCM,
 			wantCurves:  "29",
 		},
 		{
@@ -411,7 +429,7 @@ func TestFromAPIServerWithCurvePreferences(t *testing.T) { //nolint:funlen // Ta
 					Type: configv1.TLSProfileCustomType,
 					Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
 						MinTLSVersion: configv1.VersionTLS12,
-						Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+						Ciphers:       []string{openSSLECDHERSAAES128GCM},
 						Groups:        []configv1.TLSGroup{"unsupported-group"},
 					}},
 				},
@@ -433,7 +451,7 @@ func TestFromAPIServerWithCurvePreferences(t *testing.T) { //nolint:funlen // Ta
 			name:        "unknown adherence fails closed by applying the profile",
 			objects:     []client.Object{apiServer("FuturePolicy")},
 			wantVer:     "TLS1.2",
-			wantCiphers: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			wantCiphers: ianaECDHERSAAES128GCM,
 			wantCurves:  "29",
 		},
 		{
@@ -518,7 +536,7 @@ func TestFromAPIServerWithAdherence(t *testing.T) { //nolint:funlen // Covers di
 				Type: configv1.TLSProfileCustomType,
 				Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
 					MinTLSVersion: configv1.VersionTLS12,
-					Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
+					Ciphers:       []string{ianaTLS13AES128GCM},
 				}},
 			}, configv1.TLSAdherencePolicyStrictAllComponents)},
 			wantErr: "no cipher suites supported",
@@ -529,7 +547,7 @@ func TestFromAPIServerWithAdherence(t *testing.T) { //nolint:funlen // Covers di
 				Type: configv1.TLSProfileCustomType,
 				Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
 					MinTLSVersion: configv1.VersionTLS12,
-					Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+					Ciphers:       []string{openSSLECDHERSAAES128GCM},
 					Groups:        []configv1.TLSGroup{"unsupported-group"},
 				}},
 			}, configv1.TLSAdherencePolicyStrictAllComponents)},
@@ -581,6 +599,20 @@ func TestLoadWithAdherence(t *testing.T) { //nolint:funlen // Startup fallback a
 		assert.False(t, result.UsedFallback)
 		assert.Equal(t, configv1.TLSAdherencePolicyStrictAllComponents, result.AdherencePolicy)
 		assert.Equal(t, configv1.VersionTLS13, result.Spec.MinTLSVersion)
+	})
+
+	t.Run("strict old profile is honored", func(t *testing.T) {
+		t.Parallel()
+
+		apiServer := newClusterAPIServer(&configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType})
+		apiServer.Spec.TLSAdherence = configv1.TLSAdherencePolicyStrictAllComponents
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiServer).Build()
+
+		result, err := pkgtls.LoadWithAdherence(context.Background(), cli)
+		require.NoError(t, err)
+		assert.Equal(t, configv1.TLSAdherencePolicyStrictAllComponents, result.AdherencePolicy)
+		assert.Equal(t, configv1.VersionTLS10, result.Spec.MinTLSVersion)
+		assert.Equal(t, configv1.TLSProfiles[configv1.TLSProfileOldType].Ciphers, result.Spec.Ciphers)
 	})
 
 	t.Run("strict empty profile type defaults to Intermediate", func(t *testing.T) {
@@ -653,7 +685,7 @@ func TestLoadWithAdherence(t *testing.T) { //nolint:funlen // Startup fallback a
 			Type: configv1.TLSProfileCustomType,
 			Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12,
-				Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
+				Ciphers:       []string{ianaTLS13AES128GCM},
 			}},
 		})
 		apiServer.Spec.TLSAdherence = configv1.TLSAdherencePolicyStrictAllComponents

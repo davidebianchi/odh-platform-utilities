@@ -19,7 +19,8 @@ var (
 	ErrCustomTLSProfileNil = errors.New("custom TLS profile has no custom specification")
 	// ErrUnsupportedTLSProfileType is returned for an unknown strict profile type.
 	ErrUnsupportedTLSProfileType = errors.New("unsupported TLS profile type")
-	// ErrUnsupportedTLSProfileVersion is returned when Go cannot honor the minimum version.
+	// ErrUnsupportedTLSProfileVersion is returned when the version is not one
+	// OpenShift defines (TLS 1.0 through 1.3).
 	ErrUnsupportedTLSProfileVersion = errors.New("TLS profile minimum version is unsupported")
 	// ErrTLSProfileHasNoCipherSuites is returned for TLS 1.2 profiles with no ciphers.
 	ErrTLSProfileHasNoCipherSuites = errors.New("TLS profile contains no cipher suites")
@@ -33,9 +34,10 @@ var (
 type VersionFormat int
 
 const (
-	// FormatShort outputs "TLS1.2", "TLS1.3" (used by kube-auth-proxy).
+	// FormatShort outputs "TLS1.0".."TLS1.3" (used by kube-auth-proxy).
 	FormatShort VersionFormat = iota
-	// FormatGo outputs "VersionTLS12", "VersionTLS13" (used by upstream kube-rbac-proxy).
+	// FormatGo outputs "VersionTLS10".."VersionTLS13" (used by upstream
+	// kube-rbac-proxy, which parses all four version names).
 	FormatGo
 )
 
@@ -61,6 +63,10 @@ func ProfileSpecFromSecurityProfile(profile *configv1.TLSSecurityProfile) *confi
 
 func minVersionToShort(v configv1.TLSProtocolVersion) string {
 	switch v {
+	case configv1.VersionTLS10:
+		return "TLS1.0"
+	case configv1.VersionTLS11:
+		return "TLS1.1"
 	case configv1.VersionTLS12:
 		return tls12ShortVersion
 	case configv1.VersionTLS13:
@@ -72,6 +78,10 @@ func minVersionToShort(v configv1.TLSProtocolVersion) string {
 
 func minVersionToGo(v configv1.TLSProtocolVersion) string {
 	switch v {
+	case configv1.VersionTLS10:
+		return "VersionTLS10"
+	case configv1.VersionTLS11:
+		return "VersionTLS11"
 	case configv1.VersionTLS12:
 		return tls12GoVersion
 	case configv1.VersionTLS13:
@@ -81,8 +91,9 @@ func minVersionToGo(v configv1.TLSProtocolVersion) string {
 	}
 }
 
-// MinVersionFromSpec returns the TLS minimum version string for the given profile spec.
-// Unsupported versions (TLS 1.0, 1.1) fall back to TLS 1.2.
+// MinVersionFromSpec returns the TLS minimum version string for the given profile
+// spec. All four versions map in both formats: kube-auth-proxy (short format) and
+// kube-rbac-proxy (Go format) both parse TLS 1.0 through TLS 1.3 names.
 func MinVersionFromSpec(ctx context.Context, spec *configv1.TLSProfileSpec, format VersionFormat) string {
 	l := logf.FromContext(ctx).WithName("MinVersionFromSpec")
 	minVersion := configv1.TLSProfiles[configv1.TLSProfileIntermediateType].MinTLSVersion
@@ -164,9 +175,31 @@ func cipherSuitesForMinVersion(
 	return ianaCiphers, dropped
 }
 
-// IsVersionSupported returns true if the MinTLSVersion can be mapped to a proxy flag value.
+// IsVersionSupported reports whether the legacy (non-strict) resolution path
+// honors the version without flooring it to the Intermediate profile. TLS
+// 1.0/1.1 return false there by design: Legacy adherence keeps hardened
+// defaults. The strict path (FromProfileStrict) honors all four versions in
+// both formats.
 func IsVersionSupported(v configv1.TLSProtocolVersion) bool {
-	return minVersionToShort(v) != ""
+	switch v {
+	case configv1.VersionTLS12, configv1.VersionTLS13:
+		return true
+	default:
+		return false
+	}
+}
+
+// isKnownTLSVersion reports whether the version is one of the four versions
+// OpenShift defines (TLS 1.0 through 1.3). All four map to Go crypto/tls
+// minimum versions: honoring a configured TLS 1.0/1.1 minimum is the contract
+// under strict adherence, so only versions outside that set are rejected.
+func isKnownTLSVersion(v configv1.TLSProtocolVersion) bool {
+	switch v {
+	case configv1.VersionTLS10, configv1.VersionTLS11, configv1.VersionTLS12, configv1.VersionTLS13:
+		return true
+	default:
+		return false
+	}
 }
 
 // FromProfile resolves a TLSSecurityProfile to version and cipher strings.
@@ -317,10 +350,13 @@ func CurvePreferencesFromSpec(ctx context.Context, spec *configv1.TLSProfileSpec
 }
 
 // ValidateStrictTLSProfile checks that Go's TLS implementation can honor the
-// strict profile. TLS 1.3 cipher lists are not configurable in Go and are not
-// validated; TLS 1.2 requires at least one usable cipher suite.
+// strict profile. TLS 1.0/1.1 minimums are honored: they map to Go crypto/tls
+// minimum versions (Go 1.22+ defaults the server minimum to TLS 1.2 only when
+// tls.Config.MinVersion is unset; an explicit minimum needs no GODEBUG).
+// TLS 1.3 cipher lists are not configurable in Go and are not validated;
+// TLS 1.2 requires at least one usable cipher suite.
 func ValidateStrictTLSProfile(spec configv1.TLSProfileSpec) error {
-	if !IsVersionSupported(spec.MinTLSVersion) {
+	if !isKnownTLSVersion(spec.MinTLSVersion) {
 		return fmt.Errorf("%w: %q", ErrUnsupportedTLSProfileVersion, spec.MinTLSVersion)
 	}
 

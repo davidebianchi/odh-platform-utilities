@@ -121,7 +121,7 @@ func TestFromAPIServer(t *testing.T) { //nolint:funlen // Table-driven APIServer
 			Type: configv1.TLSProfileCustomType,
 			Custom: &configv1.CustomTLSProfile{
 				TLSProfileSpec: configv1.TLSProfileSpec{
-					Ciphers:       []string{"ECDHE-RSA-AES256-GCM-SHA384", "DES-CBC3-SHA"},
+					Ciphers:       []string{openSSLECDHERSAAES256GCM, "DES-CBC3-SHA"},
 					MinTLSVersion: configv1.VersionTLS11,
 				},
 			},
@@ -141,7 +141,7 @@ func TestFromAPIServer(t *testing.T) { //nolint:funlen // Table-driven APIServer
 			Type: configv1.TLSProfileCustomType,
 			Custom: &configv1.CustomTLSProfile{
 				TLSProfileSpec: configv1.TLSProfileSpec{
-					Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+					Ciphers:       []string{openSSLECDHERSAAES128GCM},
 					MinTLSVersion: configv1.VersionTLS12,
 				},
 			},
@@ -151,7 +151,7 @@ func TestFromAPIServer(t *testing.T) { //nolint:funlen // Table-driven APIServer
 		minVersion, cipherSuites, err := pkgtls.FromAPIServer(ctx, cli, pkgtls.FormatShort)
 		require.NoError(t, err)
 		assert.Equal(t, "TLS1.2", minVersion)
-		assert.Equal(t, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", cipherSuites)
+		assert.Equal(t, ianaECDHERSAAES128GCM, cipherSuites)
 	})
 
 	t.Run("forbidden is returned", func(t *testing.T) {
